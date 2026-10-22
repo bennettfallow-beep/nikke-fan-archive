@@ -1,0 +1,1247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AETHER // REQUIEM — Card Genesis</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=Barlow+Condensed:wght@300;400;500;600&family=Cormorant+Garamond:ital,wght@0,400;0,600;1,400&family=Noto+Serif+JP:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.11.3/p5.min.js"></script>
+<script>p5.disableFriendlyErrors = true;</script>
+<style>
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#050409;
+    font-family:'Barlow Condensed', system-ui, sans-serif; color:#f2ead9; -webkit-font-smoothing:antialiased; }
+  #bg { position:fixed; inset:0; z-index:0;
+    background:
+      radial-gradient(52% 42% at 50% 14%, rgba(126,102,186,0.22), rgba(0,0,0,0) 70%),
+      radial-gradient(80% 55% at 50% 104%, rgba(255,132,88,0.08), rgba(0,0,0,0) 72%),
+      linear-gradient(180deg,#0c0913 0%,#08060e 52%,#030206 100%);
+  }
+  #bg:after { content:''; position:absolute; inset:0;
+    background: radial-gradient(115% 78% at 50% 44%, rgba(0,0,0,0) 38%, rgba(0,0,0,0.78) 100%); }
+  canvas { position:relative; z-index:1; display:block; }
+
+  .hud { position:fixed; z-index:3; pointer-events:none; user-select:none;
+    letter-spacing:0.32em; text-transform:uppercase; font-weight:300; }
+  #hud-l { left:34px; bottom:28px; }
+  #hud-r { right:34px; bottom:28px; text-align:right; }
+  .brand { font-family:'Cinzel', Georgia, serif; font-size:13px; letter-spacing:0.42em; color:#e9d5a9; opacity:.92; }
+  .brand span { opacity:.45; padding:0 .35em; }
+  .sub { margin-top:9px; font-size:10px; color:#8f86a0; letter-spacing:0.36em; }
+  .idx { font-family:'Cinzel', Georgia, serif; font-size:11px; color:#e9d5a9; opacity:.85; letter-spacing:.3em; }
+  .cname { margin-top:8px; font-family:'Cormorant Garamond', Georgia, serif; font-style:italic;
+    font-size:15px; letter-spacing:.10em; color:#cfc3d8; text-transform:none; opacity:.9; }
+  .hint { margin-top:12px; font-size:9.5px; color:#6f6879; letter-spacing:.28em; }
+  .hint b { color:#a99fc0; font-weight:400; }
+  .rule { width:1px; height:26px; background:linear-gradient(#0000, #e9d5a9, #0000); opacity:.35;
+    display:inline-block; vertical-align:middle; margin:0 14px; }
+</style>
+</head>
+<body>
+<div id="bg"></div>
+<div class="hud" id="hud-l">
+  <div class="brand">Aether <span>//</span> Requiem</div>
+  <div class="sub">Genesis Set · Card Genesis Engine</div>
+</div>
+<div class="hud" id="hud-r">
+  <div class="idx" id="idx">01 / 05</div>
+  <div class="cname" id="cname"></div>
+  <div class="hint"><b>← →</b> cycle &nbsp;·&nbsp; <b>click</b> flip &nbsp;·&nbsp; <b>R</b> reseed &nbsp;·&nbsp; <b>S</b> save</div>
+</div>
+
+<script>
+/* ============================================================================
+   AETHER // REQUIEM — Weiss-Schwarz-format trading cards, generated.
+   Everything on the card (typography excepted) is procedural: the key visual,
+   the foil diffraction, the frame, the print grain.
+   ========================================================================== */
+
+const CONFIG = { seed: 20261019 };
+
+const CARD_W = 860, CARD_H = 1200;          // 0.7167 — real TCG card proportion
+const ASPECT = CARD_W / CARD_H;
+const F_CINZEL = '"Cinzel"', F_COND = '"Barlow Condensed"',
+      F_BODY = '"Cormorant Garamond"', F_JP = '"Noto Serif JP"';
+const AW = { x: 42, y: 138, w: 776, h: 650 }; // art window
+
+/* ---------- tiny math ---------------------------------------------------- */
+const HALF_PI = Math.PI / 2;
+const clamp = (v,a,b) => v < a ? a : v > b ? b : v;
+const mixv  = (a,b,t) => a + (b-a)*t;
+const smoothstep = (e0,e1,x) => { const t = clamp((x-e0)/(e1-e0),0,1); return t*t*(3-2*t); };
+function mulberry32(a){ return function(){ a|=0; a = a + 0x6D2B79F5 | 0;
+  let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+  return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function withA(hex, a){
+  const n = parseInt(hex.slice(1), 16), r = (n>>16)&255, g = (n>>8)&255, b = n&255;
+  return `rgba(${r},${g},${b},${a})`;
+}
+function shade(hex, f){
+  const n = parseInt(hex.slice(1),16);
+  const r = clamp(Math.round(((n>>16)&255)*f),0,255);
+  const g = clamp(Math.round(((n>>8)&255)*f),0,255);
+  const b = clamp(Math.round((n&255)*f),0,255);
+  return `rgb(${r},${g},${b})`;
+}
+
+/* ---------- canvas helpers ---------------------------------------------- */
+function rrPath(ctx,x,y,w,h,r){
+  r = Math.min(r, w/2, h/2);
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.lineTo(x+w-r,y); ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r); ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h); ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r); ctx.quadraticCurveTo(x,y,x+r,y);
+  ctx.closePath();
+}
+function clipRR(g,x,y,w,h,r){ rrPath(g.drawingContext,x,y,w,h,r); g.drawingContext.clip(); }
+
+/* ---------- the deck ---------------------------------------------------- */
+const DECK = [
+  {
+    id:'AET/01-024', rarity:'RRR', arch:'shrine',
+    name:'Selene, Blade of the Long Night', jp:'セレネ',
+    kind:'CHARACTER', trait:'SWORDMAIDEN · MOONLIGHT',
+    lvl:'2', cost:'1', soul:'1', power:'9500',
+    pal:{ sky:['#100a1d','#3a1230','#7d2a34'], glow:'#ff9d76', halo:'#ffe6c8',
+          land:'#0a0610', ink:'#08050c', rim:'#ffd9b0', accent:'#f0c987' },
+    ability:'[AUTO] When this card attacks, if you control another 《Moonlight》 character, this gains +1500 power until end of turn.',
+    flavor:'“The night keeps no promises. Only edges.”'
+  },
+  {
+    id:'AET/01-041', rarity:'SR', arch:'city',
+    name:'Kaze, the Drifting Ronin', jp:'カゼ',
+    kind:'CHARACTER', trait:'RONIN · WANDERER',
+    lvl:'1', cost:'0', soul:'1', power:'5000',
+    pal:{ sky:['#06161d','#12545c','#a8cfc2'], glow:'#ffd9a0', halo:'#fff3d8',
+          land:'#06131a', ink:'#050d12', rim:'#ffe9c4', accent:'#9fd6c8' },
+    ability:'[CONT] During your turn, if you have no other characters in the front row, this gets +2000 power and +1 soul.',
+    flavor:'“A road with no end is still a road.”'
+  },
+  {
+    id:'AET/01-067', rarity:'SP', arch:'neon',
+    name:'Yuki, Neon Ghost', jp:'ユキ',
+    kind:'CHARACTER', trait:'GHOST · NETRUNNER',
+    lvl:'2', cost:'2', soul:'2', power:'8000',
+    pal:{ sky:['#05040d','#1b0b33','#3a0f46'], glow:'#59f0ff', halo:'#ff8fe0',
+          land:'#07050e', ink:'#04030a', rim:'#bff6ff', accent:'#7ef0ff' },
+    ability:'[AUTO] When this card is placed on the stage from your hand, draw a card, then discard a card for each 《Ghost》 trait you control.',
+    flavor:'“I stopped existing. The city kept my shape.”'
+  },
+  {
+    id:'AET/01-088', rarity:'CC', arch:'void',
+    name:'Abyss Cantata', jp:'アビス',
+    kind:'CLIMAX', trait:'CANTATA · MOONLIGHT',
+    lvl:'—', cost:'—', soul:'2', power:'—',
+    pal:{ sky:['#02070b','#0a2b33','#15414f'], glow:'#66ffe0', halo:'#d8fff6',
+          land:'#020608', ink:'#010407', rim:'#9ffff0', accent:'#8ef0d0' },
+    ability:'[CLIMAX] All your characters get +2000 power and +1 soul until end of turn.',
+    flavor:'“Sing, and the water remembers the sky.”'
+  },
+  {
+    id:'AET/01-100', rarity:'SR', arch:'sakura',
+    name:'Sakura Requiem', jp:'サクラ',
+    kind:'EVENT', trait:'REQUIEM · PETAL',
+    lvl:'1', cost:'0', soul:'—', power:'—',
+    pal:{ sky:['#180c15','#4a2233','#c9707f'], glow:'#ffd9e0', halo:'#fff0f2',
+          land:'#120912', ink:'#0b060b', rim:'#ffe2e6', accent:'#ffd0d8' },
+    ability:'[EVENT] Choose one of your characters. It gets +3 soul until end of turn. Then, return a card from your waiting room to your hand.',
+    flavor:'“Every spring is a rehearsal for the same goodbye.”'
+  }
+];
+
+/* ---------- state ------------------------------------------------------- */
+let cardTexCache = new Map();
+let backTex = null, foilGfx = null, glowTex = null;
+let index = 0, flipTarget = 0, flipRot = 0;
+let tilt = { x:0, y:0, tx:0, ty:0 };
+let dust = [], fontsReady = false, fontsPromise = null;
+let hoverSide = 0;
+
+/* ========================================================================
+   ART SCENE — the key visual inside each card
+   ====================================================================== */
+function drawArt(g, c, rng){
+  const ctx = g.drawingContext, P = c.pal, w = AW.w, h = AW.h;
+  const HZ = h * 0.72;
+
+  g.push();
+  clipRR(g, AW.x, AW.y, AW.w, AW.h, 14);
+  g.translate(AW.x, AW.y);
+
+  /* sky */
+  let grd = ctx.createLinearGradient(0,0,0,h);
+  grd.addColorStop(0, P.sky[0]); grd.addColorStop(0.55, P.sky[1]); grd.addColorStop(1, P.sky[2]);
+  ctx.fillStyle = grd; ctx.fillRect(0,0,w,h);
+
+  /* horizon bloom */
+  const hx = w*0.62, hy = HZ - h*0.03;
+  const rg = ctx.createRadialGradient(hx,hy,0,hx,hy,h*1.05);
+  rg.addColorStop(0, withA(P.glow,0.50)); rg.addColorStop(0.30, withA(P.glow,0.16));
+  rg.addColorStop(1, withA(P.glow,0));
+  ctx.fillStyle = rg; ctx.fillRect(0,0,w,h);
+
+  /* celestial body */
+  const mx = w*0.735, my = h*0.275, mr = h*(c.arch==='void' ? 0.20 : 0.135);
+  const mg = ctx.createRadialGradient(mx,my,mr*0.3,mx,my,mr*4.6);
+  mg.addColorStop(0, withA(P.halo,0.40)); mg.addColorStop(0.30, withA(P.halo,0.10));
+  mg.addColorStop(1, withA(P.halo,0));
+  ctx.fillStyle = mg; ctx.beginPath(); ctx.arc(mx,my,mr*4.6,0,TAU); ctx.fill();
+  ctx.fillStyle = withA(P.halo, 0.94); ctx.beginPath(); ctx.arc(mx,my,mr,0,TAU); ctx.fill();
+  /* faint surface shading */
+  ctx.fillStyle = withA(P.sky[1], 0.055);
+  ctx.beginPath(); ctx.arc(mx - mr*0.28, my + mr*0.10, mr*0.92, 0, TAU); ctx.fill();
+  ctx.fillStyle = withA(P.sky[0], 0.04);
+  ctx.beginPath(); ctx.arc(mx - mr*0.42, my - mr*0.12, mr*0.7, 0, TAU); ctx.fill();
+
+  /* elongated cloud strata */
+  ctx.save();
+  for (let i=0;i<16;i++){
+    const cy = h*(0.10 + rng()*0.62);
+    const cw = w*(0.16 + rng()*0.55);
+    const cx = rng()*w*(1.2) - w*0.1;
+    const ch = h*(0.012 + rng()*0.030);
+    const tone = mixv(0.05, 0.20, rng());
+    ctx.fillStyle = withA(rng()<0.7 ? P.halo : P.land, tone);
+    ctx.beginPath(); ctx.ellipse(cx, cy, cw, ch, (rng()-0.5)*0.09, 0, TAU); ctx.fill();
+  }
+  ctx.restore();
+
+  /* ---- landscape by archetype ---- */
+  if (c.arch === 'shrine')      drawShrine(ctx,w,h,rng,P,HZ);
+  else if (c.arch === 'city')   drawCity(ctx,w,h,rng,P,HZ,false);
+  else if (c.arch === 'neon')   drawCity(ctx,w,h,rng,P,HZ,true);
+  else if (c.arch === 'void')   drawVoid(ctx,w,h,rng,P,HZ);
+  else                          drawSakuraLand(ctx,w,h,rng,P,HZ);
+
+  /* volumetric shafts */
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (let i=0;i<7;i++){
+    const x0 = mx + (rng()-0.5)*mr*3;
+    const wd = 8 + rng()*54;
+    ctx.fillStyle = withA(P.halo, 0.022 + rng()*0.030);
+    ctx.beginPath();
+    ctx.moveTo(x0, my);
+    ctx.lineTo(x0 - wd*1.7, h);
+    ctx.lineTo(x0 + wd*1.7, h);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+
+  /* radial speed lines — the key-visual signature */
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const fx0 = w*0.335, fy0 = HZ - h*0.16;
+  for (let i=0;i<52;i++){
+    const a = rng()*TAU;
+    const r0 = h*(0.06 + rng()*0.20);
+    const r1 = h*(0.85 + rng()*0.9);
+    const wd = 0.0035 + rng()*0.011;
+    ctx.fillStyle = withA(P.halo, 0.010 + rng()*0.024);
+    ctx.beginPath();
+    ctx.moveTo(fx0 + Math.cos(a)*r0, fy0 + Math.sin(a)*r0*0.92);
+    ctx.lineTo(fx0 + Math.cos(a-wd)*r1, fy0 + Math.sin(a-wd)*r1);
+    ctx.lineTo(fx0 + Math.cos(a+wd)*r1, fy0 + Math.sin(a+wd)*r1);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+
+  /* backlight halo separating the figure from the architecture */
+  const fgx = w*0.335, fgy = HZ - h*0.02;
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  const bh = ctx.createRadialGradient(fgx, fgy, 0, fgx, fgy, h*0.36);
+  bh.addColorStop(0, withA(P.halo, 0.26)); bh.addColorStop(0.4, withA(P.glow, 0.10));
+  bh.addColorStop(1, withA(P.glow, 0));
+  ctx.fillStyle = bh; ctx.fillRect(0,0,w,h);
+  // wet-ground shimmer under the figure
+  for (let i=0;i<22;i++){
+    const yy = HZ + h*0.035 + i*h*0.004;
+    ctx.fillStyle = withA(P.glow, 0.05*(1-i/22));
+    ctx.fillRect(fgx - h*0.10, yy, h*0.20, 1.4);
+  }
+  ctx.restore();
+
+  /* the figure */
+  drawFigure(ctx, fgx, HZ + h*0.035, h*0.44, P, rng);
+
+  /* foreground framing mass */
+  ctx.fillStyle = withA(P.land, 0.92);
+  ctx.beginPath();
+  ctx.moveTo(0, h);
+  ctx.lineTo(0, h*0.905);
+  ctx.quadraticCurveTo(w*0.14, h*0.86, w*0.30, h*0.955);
+  ctx.quadraticCurveTo(w*0.42, h*1.02, w*0.52, h*0.99);
+  ctx.lineTo(w, h*1.0); ctx.lineTo(w, h);
+  ctx.closePath(); ctx.fill();
+
+  /* drifting petals / embers */
+  const petalCol = c.arch==='sakura' ? '#ffd9e2' : (c.arch==='neon' ? P.glow : P.halo);
+  for (let i=0;i<48;i++){
+    const px = rng()*w, py = rng()*h*0.95, s = 1.2 + rng()*4.4;
+    ctx.save(); ctx.translate(px,py); ctx.rotate(rng()*TAU);
+    ctx.fillStyle = withA(petalCol, 0.10 + rng()*0.42);
+    ctx.beginPath(); ctx.ellipse(0,0,s, s*0.55, 0, 0, TAU); ctx.fill();
+    ctx.restore();
+  }
+
+  /* halftone print texture */
+  ctx.fillStyle = withA('#000000', 0.040);
+  for (let y=0; y<h; y+=8){
+    for (let x=0; x<w; x+=8){
+      const d = Math.hypot(x-w*0.5, y-h*0.42)/h;
+      if (rng() < 0.34 - d*0.22) { ctx.beginPath(); ctx.arc(x + (rng()-0.5)*3, y + (rng()-0.5)*3, 0.8, 0, TAU); ctx.fill(); }
+    }
+  }
+
+  /* inner vignette */
+  const vg = ctx.createRadialGradient(w*0.5,h*0.45,h*0.18,w*0.5,h*0.5,h*0.95);
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,0.62)');
+  ctx.fillStyle = vg; ctx.fillRect(0,0,w,h);
+
+  g.pop();
+}
+
+const TAU = Math.PI*2;
+
+/* --- landscape pieces ---------------------------------------------------- */
+function drawShrine(ctx,w,h,rng,P,HZ){
+  // far ridges
+  for (let layer=0; layer<2; layer++){
+    const base = HZ + layer*6;
+    ctx.fillStyle = withA(P.land, layer===0 ? 0.42 : 0.72);
+    ctx.beginPath(); ctx.moveTo(-10, base);
+    let x = -10;
+    while (x < w+10){ const nx = x + 40 + rng()*90; const ny = base - (18 + rng()*(layer===0?58:34));
+      ctx.lineTo((x+nx)/2, ny); ctx.lineTo(nx, base); x = nx; }
+    ctx.lineTo(w+10, base+200); ctx.lineTo(-10, base+200); ctx.closePath(); ctx.fill();
+  }
+  // ground
+  ctx.fillStyle = withA(P.land, 0.95); ctx.fillRect(0, HZ, w, h-HZ);
+
+  // torii, far to near
+  const gates = [ {x:w*0.84,s:h*0.16,a:0.55}, {x:w*0.64,s:h*0.26,a:0.8}, {x:w*0.60,s:h*0.42,a:1} ];
+  gates.forEach((g,i)=>{
+    ctx.fillStyle = withA(P.ink, g.a);
+    drawTorii(ctx, g.x, HZ + (i===2 ? h*0.030 : 0), g.s, P);
+    if (i===2){
+      // a thin catch-light on the near gate
+      ctx.strokeStyle = withA(P.rim, 0.20); ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(g.x+g.s*0.44, HZ-g.s*0.98+g.s*0.05);
+      ctx.lineTo(g.x+g.s*0.44, HZ+h*0.028); ctx.stroke();
+    }
+  });
+  // stone lanterns
+  for (let i=0;i<3;i++){
+    const lx = w*0.16 + i*w*0.10, ls = h*0.045;
+    ctx.fillStyle = withA(P.ink, 0.9);
+    ctx.fillRect(lx, HZ - ls, ls*0.34, ls);
+    ctx.fillRect(lx - ls*0.22, HZ - ls*1.06, ls*0.78, ls*0.20);
+    ctx.fillStyle = withA(P.glow, 0.55);
+    ctx.fillRect(lx + ls*0.05, HZ - ls*0.92, ls*0.24, ls*0.26);
+  }
+}
+function drawTorii(ctx,x,gy,s,P){
+  const col = withA(P.ink, 1);
+  ctx.fillStyle = col;
+  const pw = s*0.085;
+  ctx.fillRect(x - s*0.46, gy - s, pw, s);
+  ctx.fillRect(x + s*0.375, gy - s, pw, s);
+  // kasagi (top beam, slightly wider, subtle upward curve)
+  ctx.beginPath();
+  ctx.moveTo(x - s*0.70, gy - s*1.02);
+  ctx.quadraticCurveTo(x, gy - s*1.10, x + s*0.70, gy - s*1.02);
+  ctx.lineTo(x + s*0.70, gy - s*0.94);
+  ctx.quadraticCurveTo(x, gy - s*1.02, x - s*0.70, gy - s*0.94);
+  ctx.closePath(); ctx.fill();
+  // nuki
+  ctx.fillRect(x - s*0.58, gy - s*0.85, s*1.16, s*0.055);
+  // gakuzuka
+  ctx.fillRect(x - s*0.035, gy - s*0.94, s*0.07, s*0.09);
+}
+
+function drawCity(ctx,w,h,rng,P,HZ,neon){
+  // far skyline
+  for (let layer=0; layer<2; layer++){
+    const base = HZ + (layer===0 ? -h*0.02 : 0);
+    let x = -20;
+    const alpha = layer===0 ? 0.38 : 0.85;
+    const maxH = layer===0 ? h*0.26 : h*0.40;
+    while (x < w+20){
+      const bw = w*(0.012 + rng()*0.045);
+      const bh = maxH*(0.18 + rng()*0.82);
+      ctx.fillStyle = withA(P.land, alpha);
+      ctx.fillRect(x, base-bh, bw, bh + h*0.1);
+      // aerials
+      if (rng()<0.22){ ctx.fillRect(x + bw*0.45, base-bh-h*0.03*(1+rng()), bw*0.05, h*0.035); }
+      // windows
+      if (layer===1){
+        const lit = neon ? P.glow : P.halo;
+        for (let wy = base-bh+8; wy < base-6; wy += 10){
+          for (let wx = x+4; wx < x+bw-4; wx += 8){
+            if (rng() < (neon?0.30:0.14)){
+              ctx.fillStyle = withA(rng()<0.5?lit:P.accent, 0.15 + rng()*0.6);
+              ctx.fillRect(wx, wy, 2.1, 3.1);
+            }
+          }
+        }
+      }
+      x += bw + 2 + rng()*9;
+    }
+  }
+  // ground / water
+  ctx.fillStyle = withA(P.land, 0.96); ctx.fillRect(0,HZ,w,h-HZ);
+  if (neon){
+    // wet reflection streaks
+    for (let i=0;i<26;i++){
+      const rx = rng()*w, rw = 2+rng()*10, rh = h*(0.03+rng()*0.14);
+      ctx.fillStyle = withA(rng()<0.6?P.glow:P.accent, 0.05+rng()*0.14);
+      ctx.fillRect(rx, HZ + rng()*(h-HZ), rw, rh);
+    }
+  }
+  // horizon haze
+  const hg = ctx.createLinearGradient(0,HZ-h*0.10,0,HZ+h*0.04);
+  hg.addColorStop(0, withA(P.glow,0)); hg.addColorStop(1, withA(P.glow,0.22));
+  ctx.fillStyle = hg; ctx.fillRect(0,HZ-h*0.10,w,h*0.14);
+}
+
+function drawVoid(ctx,w,h,rng,P,HZ){
+  // still water horizon
+  ctx.fillStyle = withA(P.land, 0.95); ctx.fillRect(0,HZ,w,h-HZ);
+  const wr = ctx.createLinearGradient(0,HZ,0,h);
+  wr.addColorStop(0, withA(P.glow,0.16)); wr.addColorStop(0.5, withA(P.glow,0.04));
+  wr.addColorStop(1, withA(P.land,0));
+  ctx.fillStyle = wr; ctx.fillRect(0,HZ,w,h-HZ);
+  // reflected moon column
+  for (let i=0;i<40;i++){
+    const y = HZ + (i/40)*(h-HZ);
+    const ww = (w*0.16)*(1 - i/44) * (0.3+rng());
+    ctx.fillStyle = withA(P.halo, 0.05 + rng()*0.10);
+    ctx.fillRect(w*0.735 - ww/2 + (rng()-0.5)*10, y, ww, 1.4);
+  }
+  // floating shards
+  for (let i=0;i<11;i++){
+    const s = h*(0.03 + rng()*0.11);
+    const x = rng()*w, y = h*0.08 + rng()*h*0.6;
+    ctx.save(); ctx.translate(x,y); ctx.rotate((rng()-0.5)*0.8);
+    ctx.fillStyle = withA(P.ink, 0.55 + rng()*0.4);
+    ctx.beginPath(); ctx.moveTo(0,-s); ctx.lineTo(s*0.42,0); ctx.lineTo(0,s*0.7); ctx.lineTo(-s*0.42,0);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = withA(P.rim, 0.22); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0,-s); ctx.lineTo(s*0.42,0); ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawSakuraLand(ctx,w,h,rng,P,HZ){
+  // rolling hills
+  ctx.fillStyle = withA(P.land, 0.5);
+  ctx.beginPath(); ctx.moveTo(-10,HZ);
+  let x=-10;
+  while (x<w+10){ const nx=x+60+rng()*90; ctx.quadraticCurveTo(x+30, HZ-20-rng()*40, nx, HZ-4-rng()*22); x=nx; }
+  ctx.lineTo(w+10,HZ+200); ctx.lineTo(-10,HZ+200); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = withA(P.land, 0.94); ctx.fillRect(0,HZ,w,h-HZ);
+
+  // pagoda silhouette
+  const px = w*0.78, ps = h*0.30;
+  ctx.fillStyle = withA(P.ink, 0.85);
+  for (let i=0;i<4;i++){
+    const yy = HZ - i*ps*0.22, ww = ps*(0.34 - i*0.055);
+    ctx.fillRect(px - ww*0.52, yy - ps*0.06, ww*1.04, ps*0.05);
+    ctx.fillRect(px - ww*0.30, yy - ps*0.20, ww*0.60, ps*0.15);
+  }
+  ctx.fillRect(px - ps*0.012, HZ - ps*1.02, ps*0.024, ps*0.26);
+
+  // bough from the left
+  ctx.strokeStyle = withA(P.ink, 0.95);
+  ctx.lineCap = 'round';
+  ctx.lineWidth = h*0.022;
+  ctx.beginPath(); ctx.moveTo(-20, h*0.06); ctx.quadraticCurveTo(w*0.30, h*0.10, w*0.46, h*0.22); ctx.stroke();
+  ctx.lineWidth = h*0.011;
+  ctx.beginPath(); ctx.moveTo(w*0.24, h*0.088); ctx.quadraticCurveTo(w*0.30, h*0.02, w*0.36, h*0.01); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(w*0.34, h*0.135); ctx.quadraticCurveTo(w*0.40, h*0.10, w*0.47, h*0.085); ctx.stroke();
+
+  // blossoms along the bough
+  const blossoms = [];
+  for (let i=0;i<34;i++){
+    const t = rng();
+    const bx = mixv(-10, w*0.46, t) + (rng()-0.5)*w*0.09;
+    const by = mixv(h*0.06, h*0.22, t) + (rng()-0.5)*h*0.10;
+    blossoms.push([bx,by]);
+  }
+  blossoms.forEach(([bx,by])=>{
+    const r = 2.4 + rng()*4.6;
+    ctx.fillStyle = withA(rng()<0.5?P.halo:'#ffc7d4', 0.35+rng()*0.55);
+    for (let k=0;k<5;k++){
+      const a = k/5*TAU + rng();
+      ctx.beginPath(); ctx.ellipse(bx+Math.cos(a)*r*0.8, by+Math.sin(a)*r*0.8, r*0.62, r*0.42, a, 0, TAU); ctx.fill();
+    }
+  });
+}
+
+/* --- the figure --------------------------------------------------------- */
+function drawFigure(ctx, x, gy, s, P, rng){
+  const headY = gy - s*0.865, headR = s*0.047;
+  const shY   = gy - s*0.775;
+  const hipY  = gy - s*0.455;
+
+  // ground shadow
+  ctx.fillStyle = withA(P.ink, 0.5);
+  ctx.beginPath(); ctx.ellipse(x + s*0.04, gy + s*0.006, s*0.16, s*0.017, 0, 0, TAU); ctx.fill();
+
+  const gg = ctx.createLinearGradient(x - s*0.30, 0, x + s*0.20, 0);
+  gg.addColorStop(0.00, P.ink);
+  gg.addColorStop(0.60, P.ink);
+  gg.addColorStop(0.84, shade(P.ink, 1.9));
+  gg.addColorStop(0.94, withA(P.rim, 0.60));
+  gg.addColorStop(1.00, withA(P.rim, 0.30));
+  ctx.fillStyle = gg;
+
+  // legs
+  ctx.beginPath();
+  ctx.moveTo(x - s*0.035, hipY); ctx.lineTo(x - s*0.055, gy);
+  ctx.lineTo(x - s*0.012, gy); ctx.lineTo(x + s*0.004, hipY + s*0.04); ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x + s*0.030, hipY); ctx.lineTo(x + s*0.050, gy);
+  ctx.lineTo(x + s*0.010, gy); ctx.lineTo(x + s*0.001, hipY + s*0.04); ctx.closePath(); ctx.fill();
+
+  // coat / haori, flaring with a wind-torn hem
+  ctx.beginPath();
+  ctx.moveTo(x - s*0.072, shY + s*0.01);
+  ctx.quadraticCurveTo(x - s*0.130, gy - s*0.40, x - s*0.185, gy - s*0.115);
+  ctx.quadraticCurveTo(x - s*0.120, gy - s*0.180, x - s*0.060, gy - s*0.130);
+  ctx.quadraticCurveTo(x - s*0.020, gy - s*0.200, x + s*0.030, gy - s*0.120);
+  ctx.quadraticCurveTo(x + s*0.110, gy - s*0.190, x + s*0.180, gy - s*0.100);
+  ctx.quadraticCurveTo(x + s*0.120, gy - s*0.42, x + s*0.072, shY + s*0.01);
+  ctx.quadraticCurveTo(x, shY - s*0.030, x - s*0.072, shY + s*0.01);
+  ctx.closePath(); ctx.fill();
+
+  // neck + head
+  ctx.fillRect(x - s*0.014, headY + headR*0.5, s*0.028, s*0.045);
+  ctx.beginPath(); ctx.ellipse(x, headY, headR*0.94, headR*1.06, 0.06, 0, TAU); ctx.fill();
+
+  // hair streaming down-wind (to the left)
+  ctx.beginPath();
+  ctx.moveTo(x - headR*0.95, headY - headR*0.55);
+  ctx.quadraticCurveTo(x - headR*3.4, headY - headR*1.5, x - headR*6.4, headY + headR*0.55);
+  ctx.quadraticCurveTo(x - headR*4.0, headY + headR*0.15, x - headR*3.2, headY + headR*1.25);
+  ctx.quadraticCurveTo(x - headR*2.2, headY + headR*0.55, x - headR*0.9, headY + headR*0.95);
+  ctx.closePath(); ctx.fill();
+  ctx.beginPath();
+  ctx.moveTo(x + headR*0.5, headY - headR*0.9);
+  ctx.quadraticCurveTo(x + headR*0.2, headY - headR*2.4, x - headR*1.2, headY - headR*2.1);
+  ctx.quadraticCurveTo(x - headR*0.4, headY - headR*1.5, x + headR*0.15, headY - headR*0.7);
+  ctx.closePath(); ctx.fill();
+
+  // sword arm
+  const hxd = x + s*0.105, hyd = gy - s*0.40;
+  ctx.beginPath();
+  ctx.moveTo(x + s*0.060, shY + s*0.02);
+  ctx.quadraticCurveTo(x + s*0.115, shY + s*0.13, hxd, hyd);
+  ctx.lineTo(hxd + s*0.014, hyd - s*0.03);
+  ctx.quadraticCurveTo(x + s*0.090, shY + s*0.11, x + s*0.045, shY + s*0.01);
+  ctx.closePath(); ctx.fill();
+
+  // katana
+  ctx.save();
+  ctx.translate(hxd, hyd); ctx.rotate(1.06);
+  ctx.fillStyle = withA(P.ink, 1);
+  ctx.fillRect(-s*0.028, -s*0.008, s*0.055, s*0.016);         // hilt
+  ctx.fillRect(s*0.020, -s*0.014, s*0.010, s*0.028);          // tsuba
+  ctx.beginPath();                                            // blade
+  ctx.moveTo(s*0.030, -s*0.0055);
+  ctx.quadraticCurveTo(s*0.22, -s*0.016, s*0.40, -s*0.004);
+  ctx.quadraticCurveTo(s*0.22, s*0.004, s*0.030, s*0.0055);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = withA(P.rim, 0.45); ctx.lineWidth = Math.max(0.8, s*0.0016);
+  ctx.beginPath(); ctx.moveTo(s*0.032, -s*0.0058);
+  ctx.quadraticCurveTo(s*0.22, -s*0.0165, s*0.40, -s*0.0042); ctx.stroke();
+  ctx.restore();
+
+  // rim catch-light along the leading edge
+  ctx.strokeStyle = withA(P.rim, 0.62); ctx.lineWidth = Math.max(1, s*0.0034);
+  ctx.beginPath();
+  ctx.moveTo(x + headR*0.55, headY + headR*0.2);
+  ctx.quadraticCurveTo(x + s*0.085, shY + s*0.10, x + s*0.072, gy - s*0.36);
+  ctx.stroke();
+
+  // streaming sash — the one note of pure colour on the figure
+  ctx.strokeStyle = withA(P.accent, 0.52);
+  ctx.lineWidth = s*0.013; ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x - s*0.045, shY + s*0.085);
+  ctx.bezierCurveTo(x - s*0.15, shY + s*0.10, x - s*0.24, shY + s*0.24, x - s*0.36, shY + s*0.19);
+  ctx.stroke();
+  ctx.strokeStyle = withA(P.accent, 0.22); ctx.lineWidth = s*0.006;
+  ctx.beginPath();
+  ctx.moveTo(x - s*0.045, shY + s*0.10);
+  ctx.bezierCurveTo(x - s*0.16, shY + s*0.15, x - s*0.20, shY + s*0.30, x - s*0.30, shY + s*0.30);
+  ctx.stroke();
+
+  // chest sigil
+  ctx.fillStyle = withA(P.halo, 0.80);
+  ctx.beginPath(); ctx.arc(x + s*0.006, shY + s*0.095, s*0.011, 0, TAU); ctx.fill();
+  ctx.strokeStyle = withA(P.halo, 0.35); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(x + s*0.006, shY + s*0.095, s*0.026, 0, TAU); ctx.stroke();
+
+  // coat seam
+  ctx.strokeStyle = withA(P.rim, 0.14); ctx.lineWidth = Math.max(1, s*0.0022);
+  ctx.beginPath(); ctx.moveTo(x + s*0.012, shY + s*0.09);
+  ctx.quadraticCurveTo(x + s*0.020, gy - s*0.34, x + s*0.010, gy - s*0.135);
+  ctx.stroke();
+}
+
+/* ========================================================================
+   CARD COMPOSITION
+   ====================================================================== */
+function buildCard(c){
+  const g = createGraphics(CARD_W, CARD_H);
+  const ctx = g.drawingContext;
+  const P = c.pal, seedNum = hashStr(c.id + '|' + c.arch + '|' + CONFIG.seed);
+  const rng = mulberry32(seedNum);
+
+  g.pixelDensity(1);
+  g.clear();
+  g.noStroke();
+
+  /* outer metal rim */
+  const mg = ctx.createLinearGradient(0, 0, CARD_W, CARD_H);
+  mg.addColorStop(0.00, shade(P.accent, 0.98));
+  mg.addColorStop(0.14, shade(P.accent, 0.74));
+  mg.addColorStop(0.30, shade(P.accent, 1.62));
+  mg.addColorStop(0.48, shade(P.accent, 0.82));
+  mg.addColorStop(0.66, shade(P.accent, 1.46));
+  mg.addColorStop(0.84, shade(P.accent, 0.88));
+  mg.addColorStop(1.00, shade(P.accent, 1.18));
+  rrPath(ctx, 0, 0, CARD_W, CARD_H, 36); ctx.fillStyle = mg; ctx.fill();
+
+  /* inner panel */
+  rrPath(ctx, 12, 12, CARD_W-24, CARD_H-24, 28);
+  ctx.fillStyle = '#0a0910'; ctx.fill();
+  rrPath(ctx, 12, 12, CARD_W-24, CARD_H-24, 28);
+  ctx.strokeStyle = withA('#ffffff', 0.10); ctx.lineWidth = 1; ctx.stroke();
+
+  /* art */
+  drawArt(g, c, rng);
+
+  /* art window treatment: gold hairline + inner shadow */
+  rrPath(ctx, AW.x, AW.y, AW.w, AW.h, 14);
+  ctx.strokeStyle = withA(P.accent, 0.85); ctx.lineWidth = 2; ctx.stroke();
+  rrPath(ctx, AW.x+3, AW.y+3, AW.w-6, AW.h-6, 12);
+  ctx.strokeStyle = withA('#000000', 0.55); ctx.lineWidth = 3; ctx.stroke();
+  const ish = ctx.createLinearGradient(0, AW.y, 0, AW.y+AW.h*0.30);
+  ish.addColorStop(0, 'rgba(0,0,0,0.55)'); ish.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.save(); clipRR(g, AW.x, AW.y, AW.w, AW.h, 14); ctx.fillStyle = ish; ctx.fillRect(AW.x,AW.y,AW.w,AW.h*0.3); ctx.restore();
+
+  /* vertical katakana along the art's right edge */
+  g.push();
+  g.textFont(F_JP);
+  g.textSize(26); g.textAlign(CENTER, CENTER); g.noStroke();
+  const jx = AW.x + AW.w - 36, jy0 = AW.y + 42;
+  ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 6;
+  for (let i=0;i<c.jp.length;i++){
+    g.fill(withA(P.halo, 0.95));
+    g.text(c.jp[i], jx, jy0 + i*32);
+  }
+  ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+  g.pop();
+  // hairline beside the katakana
+  ctx.strokeStyle = withA(P.accent, 0.30); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(jx - 24, jy0 - 24); ctx.lineTo(jx - 24, jy0 + c.jp.length*32 - 8); ctx.stroke();
+
+  /* ---- typography ---- */
+  const warm = '#f6ecda', dim = '#a99db4';
+
+  // series line + id
+  txt(g, 'AETHER ✦ REQUIEM', 46, 52, 13, F_COND, withA(P.accent, 0.80), 'left', 3.6);
+  txt(g, c.id, CARD_W-46, 52, 13, F_COND, withA(P.accent, 0.62), 'right', 2.6);
+
+  // title
+  const nameSize = fitText(g, c.name, F_CINZEL, 43, CARD_W-140);
+  ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 10;
+  txt(g, c.name, 46, 104, nameSize, F_CINZEL, warm, 'left', 1.2);
+  ctx.shadowBlur = 0; ctx.shadowColor = 'transparent';
+
+  // header rule
+  ctx.strokeStyle = withA(P.accent, 0.55); ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(46, 120); ctx.lineTo(CARD_W-46, 120); ctx.stroke();
+  ctx.fillStyle = withA(P.accent, 0.9);
+  ctx.save(); ctx.translate(CARD_W/2, 120); ctx.rotate(Math.PI/4); ctx.fillRect(-3.2,-3.2,6.4,6.4); ctx.restore();
+
+  /* type bar */
+  txt(g, c.kind, 46, 832, 14, F_COND, withA(P.accent, 0.92), 'left', 4.2);
+  txt(g, c.trait, CARD_W-46, 832, 13, F_COND, dim, 'right', 3.2);
+  ctx.strokeStyle = withA('#ffffff', 0.10); ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(46, 842); ctx.lineTo(CARD_W-46, 842); ctx.stroke();
+
+  /* ability panel */
+  rrPath(ctx, 42, 856, CARD_W-84, 212, 10);
+  ctx.fillStyle = 'rgba(255,255,255,0.045)'; ctx.fill();
+  rrPath(ctx, 42, 856, CARD_W-84, 212, 10);
+  ctx.strokeStyle = withA(P.accent, 0.30); ctx.lineWidth = 1.2; ctx.stroke();
+
+  txt(g, c.kind === 'CLIMAX' ? 'TRIGGER' : (c.kind === 'EVENT' ? 'MAIN' : 'AUTO'), 60, 884, 13,
+      F_COND, withA(P.accent, 0.95), 'left', 3.4);
+  const bodyText = c.ability.replace(/^\[[A-Z]+\]\s*/, '');
+  wrapText(g, bodyText, 60, 924, CARD_W-120, 32, 25, F_BODY, '#e6ddf2');
+  g.push();
+  g.textFont(F_BODY); g.textStyle(ITALIC); g.textSize(22); g.noStroke();
+  g.fill(withA(P.accent, 0.85)); g.textAlign(LEFT, BASELINE);
+  g.text(c.flavor, 60, 1046);
+  g.pop();
+
+  /* divider above stats */
+  ctx.strokeStyle = withA(P.accent, 0.42); ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(42, 1080); ctx.lineTo(CARD_W-42, 1080); ctx.stroke();
+
+  /* stat row */
+  const labels = ['LEVEL','COST','SOUL','POWER'];
+  const values = [c.lvl, c.cost, c.soul, c.power];
+  const cellW = (CARD_W-84)/4;
+  for (let i=0;i<4;i++){
+    const cx = 42 + cellW*i + cellW/2;
+    txt(g, labels[i], cx, 1104, 13, F_COND, withA(P.accent, 0.72), 'center', 3.4);
+    const vs = fitText(g, values[i], F_COND, 54, cellW-26);
+    txt(g, values[i], cx, 1152, vs, F_COND, warm, 'center', 1.2);
+    if (i>0){ ctx.strokeStyle = withA('#ffffff', 0.09); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(42+cellW*i, 1088); ctx.lineTo(42+cellW*i, 1158); ctx.stroke(); }
+  }
+  // soul glyph
+  ctx.save(); ctx.translate(42 + cellW*2 + cellW/2, 1166); ctx.rotate(Math.PI/4);
+  ctx.strokeStyle = withA(P.accent, 0.5); ctx.lineWidth = 1.2; ctx.strokeRect(-3,-3,6,6); ctx.restore();
+
+  /* footer */
+  txt(g, '© AETHERWORKS / REQUIEM PROJECT', 42, 1180, 10.5, F_COND, withA('#d8cfe4', 0.72), 'left', 2.4);
+  // rarity chip
+  const rw = 86, rx = CARD_W-42-rw;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(rx+10, 1166); ctx.lineTo(rx+rw-12, 1166); ctx.lineTo(rx+rw, 1176);
+  ctx.lineTo(rx+rw-12, 1186); ctx.lineTo(rx+10, 1186); ctx.lineTo(rx, 1176); ctx.closePath();
+  ctx.fillStyle = withA(P.accent, 0.16); ctx.fill();
+  ctx.strokeStyle = withA(P.accent, 0.75); ctx.lineWidth = 1.2; ctx.stroke();
+  ctx.restore();
+  txt(g, c.rarity, rx + rw/2 - 1, 1180, 12, F_CINZEL, withA(P.accent, 0.95), 'center', 3.2);
+
+  /* corner filigree */
+  cornerOrn(ctx, 30, 30, 1, 1, P);
+  cornerOrn(ctx, CARD_W-30, 30, -1, 1, P);
+  cornerOrn(ctx, 30, CARD_H-30, 1, -1, P);
+  cornerOrn(ctx, CARD_W-30, CARD_H-30, -1, -1, P);
+
+  /* final print grain over everything */
+  for (let i=0;i<5200;i++){
+    const gx = rng()*CARD_W, gy2 = rng()*CARD_H;
+    ctx.fillStyle = rng()<0.5 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.055)';
+    ctx.fillRect(gx, gy2, 1, 1);
+  }
+  return g;
+}
+
+function cornerOrn(ctx, x, y, sx, sy, P){
+  ctx.save(); ctx.translate(x,y); ctx.scale(sx,sy);
+  ctx.strokeStyle = withA(P.accent, 0.62); ctx.lineWidth = 1.3;
+  ctx.beginPath();
+  ctx.moveTo(0, 22); ctx.lineTo(0, 6); ctx.quadraticCurveTo(0, 0, 6, 0); ctx.lineTo(22, 0);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(9, 16); ctx.lineTo(9, 9); ctx.quadraticCurveTo(9, 9, 16, 9);
+  ctx.stroke();
+  ctx.fillStyle = withA(P.accent, 0.8);
+  ctx.save(); ctx.translate(19,19); ctx.rotate(Math.PI/4); ctx.fillRect(-2.2,-2.2,4.4,4.4); ctx.restore();
+  ctx.restore();
+}
+
+function txt(g, s, x, y, size, font, color, align, spacing){
+  g.push();
+  const ctx = g.drawingContext;
+  if (spacing !== undefined) ctx.letterSpacing = spacing + 'px';
+  g.textFont(font); g.textSize(size); g.textAlign(align, BASELINE); g.noStroke(); g.fill(color);
+  g.text(s, x, y);
+  ctx.letterSpacing = '0px';
+  g.pop();
+}
+function fitText(g, str, font, size, maxW){
+  g.push(); g.textFont(font); g.textSize(size);
+  let s = size;
+  while (g.textWidth(str) > maxW && s > 10){ s -= 1; g.textSize(s); }
+  g.pop(); return s;
+}
+function wrapText(g, str, x, y, maxW, lh, size, font, color){
+  g.push(); g.textFont(font); g.textSize(size); g.textAlign(LEFT, BASELINE);
+  g.noStroke(); g.fill(color);
+  const words = str.split(' '); let line = '', ly = y;
+  for (const wd of words){
+    const test = line ? line + ' ' + wd : wd;
+    if (g.textWidth(test) > maxW && line){ g.text(line, x, ly); line = wd; ly += lh; }
+    else line = test;
+  }
+  if (line) g.text(line, x, ly);
+  g.pop(); return ly;
+}
+function hashStr(s){ let h = 2166136261; for (let i=0;i<s.length;i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+
+/* ---------- card back ---------------------------------------------------- */
+function buildBack(c){
+  const g = createGraphics(CARD_W, CARD_H);
+  const ctx = g.drawingContext, P = c.pal;
+  g.pixelDensity(1); g.clear(); g.noStroke();
+
+  const mg = ctx.createLinearGradient(0,0,CARD_W,CARD_H);
+  mg.addColorStop(0,'#161222'); mg.addColorStop(0.5,'#0c0a14'); mg.addColorStop(1,'#191227');
+  rrPath(ctx,0,0,CARD_W,CARD_H,36); ctx.fillStyle=mg; ctx.fill();
+
+  // vignette
+  const vg = ctx.createRadialGradient(CARD_W/2,CARD_H*0.42,60,CARD_W/2,CARD_H*0.5,CARD_H*0.8);
+  vg.addColorStop(0, withA(P.glow,0.10)); vg.addColorStop(1,'rgba(0,0,0,0.65)');
+  rrPath(ctx,12,12,CARD_W-24,CARD_H-24,28); ctx.fillStyle=vg; ctx.fill();
+
+  // guilloché rings
+  const cx = CARD_W/2, cy = CARD_H/2;
+  for (let i=0;i<26;i++){
+    const r = 60 + i*13;
+    ctx.strokeStyle = withA(P.accent, 0.05 + (i%3===0?0.10:0.02)); ctx.lineWidth = i%4===0?1.4:0.8;
+    ctx.beginPath(); ctx.arc(cx,cy,r,0,TAU); ctx.stroke();
+  }
+  // radial spokes
+  for (let i=0;i<48;i++){
+    const a = i/48*TAU;
+    ctx.strokeStyle = withA(P.accent, 0.055); ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(cx + Math.cos(a)*150, cy + Math.sin(a)*150);
+    ctx.lineTo(cx + Math.cos(a)*400, cy + Math.sin(a)*400);
+    ctx.stroke();
+  }
+  // border
+  rrPath(ctx,12,12,CARD_W-24,CARD_H-24,28);
+  ctx.strokeStyle = withA(P.accent,0.55); ctx.lineWidth=1.4; ctx.stroke();
+  rrPath(ctx,26,26,CARD_W-52,CARD_H-52,22);
+  ctx.strokeStyle = withA(P.accent,0.22); ctx.lineWidth=1; ctx.stroke();
+
+  // medallion
+  ctx.save(); ctx.translate(cx,cy);
+  ctx.rotate(Math.PI/4);
+  ctx.strokeStyle = withA(P.accent,0.8); ctx.lineWidth = 2;
+  ctx.strokeRect(-150,-150,300,300);
+  ctx.strokeStyle = withA(P.accent,0.35); ctx.lineWidth = 1;
+  ctx.strokeRect(-118,-118,236,236);
+  ctx.restore();
+  ctx.beginPath(); ctx.arc(cx,cy,92,0,TAU);
+  ctx.fillStyle = withA(P.accent,0.10); ctx.fill();
+  ctx.strokeStyle = withA(P.accent,0.7); ctx.lineWidth = 1.6; ctx.stroke();
+
+  // sword sigil
+  ctx.save(); ctx.translate(cx,cy); ctx.rotate(-Math.PI/4);
+  ctx.fillStyle = withA(P.accent,0.92);
+  ctx.fillRect(-4,-84,8,132);
+  ctx.fillRect(-26,36,52,7);
+  ctx.beginPath(); ctx.moveTo(-4,-84); ctx.lineTo(0,-104); ctx.lineTo(4,-84); ctx.closePath(); ctx.fill();
+  ctx.restore();
+
+  txt(g,'AETHER',cx, cy+250, 26,F_CINZEL, withA(P.accent,0.85),'center', 12);
+  txt(g,'REQUIEM',cx, cy+284, 15,F_CINZEL, withA(P.accent,0.5),'center', 10);
+  txt(g,'TRADING CARD GAME',cx, cy+330, 11,F_COND, withA('#ffffff',0.22),'center', 5);
+
+  // grain
+  const rng = mulberry32(hashStr('back'+CONFIG.seed));
+  for (let i=0;i<4200;i++){
+    ctx.fillStyle = rng()<0.5?'rgba(255,255,255,0.03)':'rgba(0,0,0,0.05)';
+    ctx.fillRect(rng()*CARD_W, rng()*CARD_H, 1, 1);
+  }
+  return g;
+}
+
+/* ---------- foil layer (regenerated per frame, tilt-driven) -------------- */
+function rainbowGrad(ctx, x0,y0,x1,y1, cycles, alpha, phase){
+  const g = ctx.createLinearGradient(x0,y0,x1,y1);
+  const N = Math.round(cycles*10);
+  for (let i=0;i<=N;i++){
+    const p = i/N;
+    const hue = (((p*cycles + phase) % 1) + 1) % 1 * 360;
+    g.addColorStop(p, `hsla(${hue.toFixed(1)}, 94%, 62%, ${alpha})`);
+  }
+  return g;
+}
+
+function drawFoil(tx, ty, sigil){
+  const f = foilGfx, ctx = f.drawingContext;
+  const w = AW.w, h = AW.h;
+  f.clear();
+  f.push();
+  f.scale(FOIL_SCALE);
+  clipRR(f, AW.x, AW.y, AW.w, AW.h, 14);
+  f.translate(AW.x, AW.y);
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+
+  /* 1 — diffraction: two interfering rainbow sweeps */
+  const a1 = 0.58 + tx*0.42, a2 = -1.05 + ty*0.35;
+  const R = Math.hypot(w,h)*0.6;
+  const ph = tx*0.55 + ty*0.35;
+  ctx.fillStyle = rainbowGrad(ctx, w/2-Math.cos(a1)*R, h/2-Math.sin(a1)*R,
+                                  w/2+Math.cos(a1)*R, h/2+Math.sin(a1)*R, 1.7, 0.25, ph);
+  ctx.fillRect(0,0,w,h);
+  ctx.fillStyle = rainbowGrad(ctx, w/2-Math.cos(a2)*R, h/2-Math.sin(a2)*R,
+                                  w/2+Math.cos(a2)*R, h/2+Math.sin(a2)*R, 2.6, 0.13, ph+0.35);
+  ctx.fillRect(0,0,w,h);
+
+  /* 2 — etched diffraction grating: fine parallel scratches */
+  ctx.save();
+  ctx.translate(w/2, h/2); ctx.rotate(0.58 + tx*0.3);
+  const span = Math.hypot(w,h);
+  for (let i=-span/2; i<span/2; i+=3.2){
+    const alt = (Math.floor(i/3.2) % 2) ? 1 : 0.45;
+    ctx.strokeStyle = `rgba(255,255,255,${0.030*alt})`;
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(i, -span/2 + ph*22); ctx.lineTo(i, span/2 + ph*22); ctx.stroke();
+  }
+  ctx.restore();
+
+  /* 3 — cross-hatch ticks (the physical micro-texture) */
+  for (let i=0;i<90;i++){
+    const px = ((i*137.5) % w), py = ((i*79.3) % h);
+    ctx.strokeStyle = 'rgba(255,255,255,0.035)';
+    ctx.lineWidth = 0.9;
+    ctx.beginPath(); ctx.moveTo(px-9, py+5); ctx.lineTo(px+9, py-5); ctx.stroke();
+  }
+
+  /* 4 — travelling specular sheen */
+  const bandC = 0.5 + tx*0.85 + ty*0.22, bandW = 0.24;
+  const sg = ctx.createLinearGradient(0,0,w,h);
+  sg.addColorStop(clamp(bandC-bandW,0,1), 'rgba(255,255,255,0)');
+  sg.addColorStop(clamp(bandC-bandW*0.40,0,1), 'rgba(255,255,255,0.09)');
+  sg.addColorStop(clamp(bandC,0,1), 'rgba(255,255,255,0.26)');
+  sg.addColorStop(clamp(bandC+bandW*0.45,0,1), 'rgba(255,255,255,0.05)');
+  sg.addColorStop(clamp(bandC+bandW,0,1), 'rgba(255,255,255,0)');
+  ctx.fillStyle = sg; ctx.fillRect(0,0,w,h);
+
+  /* 5 — sparkle field */
+  const rng = foilRng;
+  for (let i=0;i<64;i++){
+    const sx = rng()*w, sy = rng()*h;
+    const tw = 0.30 + 0.70*Math.abs(Math.sin(ph*7 + i*1.7));
+    const sz = (1.0 + rng()*4.2) * (0.55 + tw*0.95);
+    ctx.fillStyle = `rgba(255,255,255,${(0.14*tw).toFixed(3)})`;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy-sz*2.4); ctx.quadraticCurveTo(sx+sz*0.20, sy-sz*0.20, sx+sz*2.4, sy);
+    ctx.quadraticCurveTo(sx+sz*0.20, sy+sz*0.20, sx, sy+sz*2.4);
+    ctx.quadraticCurveTo(sx-sz*0.20, sy+sz*0.20, sx-sz*2.4, sy);
+    ctx.quadraticCurveTo(sx-sz*0.20, sy-sz*0.20, sx, sy-sz*2.4);
+    ctx.fill();
+  }
+
+  /* 6 — etched polar sigil, only at steep angles */
+  if (sigil > 0.01){
+    ctx.save();
+    ctx.globalAlpha = 0.20 * sigil;
+    ctx.translate(w*0.345, h*0.47);
+    ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+    ctx.lineWidth = 1;
+    for (let ring=0; ring<4; ring++){
+      ctx.beginPath(); ctx.arc(0,0,64+ring*34,0,TAU); ctx.stroke();
+    }
+    for (let i=0;i<72;i++){
+      if (i % 3) continue;
+      const a = i/72*TAU;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a)*64, Math.sin(a)*64);
+      ctx.lineTo(Math.cos(a)*166, Math.sin(a)*166);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  ctx.restore();
+  f.pop();
+}
+
+/* ========================================================================
+   SCENE
+   ====================================================================== */
+let foilRng = mulberry32(1234);
+const FOIL_SCALE = 0.5;   // foil is a soft optical layer — half res keeps 60fps
+
+function setup(){
+  setAttributes({ alpha: true, antialias: true });
+  createCanvas(windowWidth, windowHeight, WEBGL);
+  pixelDensity(1);
+  frameRate(60);
+
+  foilGfx = createGraphics(Math.round(CARD_W*FOIL_SCALE), Math.round(CARD_H*FOIL_SCALE));
+  foilGfx.pixelDensity(1);
+
+  // soft radial for shadows / glow
+  glowTex = createGraphics(256,256);
+  glowTex.pixelDensity(1);
+  const gctx = glowTex.drawingContext;
+  const rg = gctx.createRadialGradient(128,128,0,128,128,128);
+  rg.addColorStop(0,'rgba(255,255,255,1)'); rg.addColorStop(0.45,'rgba(255,255,255,0.35)');
+  rg.addColorStop(1,'rgba(255,255,255,0)');
+  gctx.fillStyle = rg; gctx.fillRect(0,0,256,256);
+
+  for (let i=0;i<110;i++){
+    dust.push({ x: random(-1,1), y: random(-1,1), z: random(-1,1),
+      s: random(0.6,2.6), sp: random(0.0006,0.0022), ph: random(TAU), hue: random(1) });
+  }
+
+  buildAll();
+  fontsPromise = loadFonts().then(()=>{ fontsReady = true; cardTexCache.clear(); backTex = null; });
+  updateHUD();
+  window._p5Ready = true;
+}
+
+function buildAll(){
+  cardTexCache.clear(); backTex = null;
+  currentTex();
+}
+
+async function loadFonts(){
+  const specs = [
+    '700 48px Cinzel', '600 48px Cinzel', '400 20px Cinzel',
+    '400 20px "Barlow Condensed"', '500 20px "Barlow Condensed"',
+    '400 22px "Cormorant Garamond"', 'italic 400 22px "Cormorant Garamond"',
+    '400 20px "Noto Serif JP"'
+  ];
+  try {
+    await Promise.all(specs.map(s => document.fonts.load(s, 'セレネ ABC 0123')));
+    await document.fonts.ready;
+  } catch(e){ /* fall back to system fonts */ }
+}
+
+function currentTex(){
+  if (!cardTexCache.has(index)){
+    cardTexCache.set(index, buildCard(DECK[index]));
+  }
+  return cardTexCache.get(index);
+}
+function texFor(i){
+  i = (i + DECK.length) % DECK.length;
+  if (!cardTexCache.has(i)) cardTexCache.set(i, buildCard(DECK[i]));
+  return cardTexCache.get(i);
+}
+
+let lastFoilState = { tx: 99, ty: 99 };
+let fps = 60;
+
+function draw(){
+  const t = millis()/1000;
+
+  // tilt easing
+  const targetY = map(clamp(mouseX,0,width), 0, width, -1, 1);
+  const targetX = map(clamp(mouseY,0,height), 0, height, -1, 1);
+  tilt.y = mixv(tilt.y, targetY*0.30, 0.07);
+  tilt.x = mixv(tilt.x, targetX*0.22, 0.07);
+
+  // flip animation
+  flipRot = mixv(flipRot, flipTarget, 0.12);
+  if (Math.abs(flipRot - flipTarget) < 0.002) flipRot = flipTarget;
+
+  clear();
+
+  const s = cardWorldHeight();
+  const front = flipRot < HALF_PI;
+
+  /* ---- backdrop glow ---- */
+  push();
+  translate(0, -s*0.06, -420);
+  noStroke(); blendMode(ADD); tint(255, 26);
+  texture(glowTex); plane(s*3.2, s*3.2);
+  pop();
+
+  /* ---- floor shadow ---- */
+  push();
+  translate(0, s*0.60, -180);
+  noStroke(); blendMode(BLEND); tint(10, 12, 20, 120);
+  texture(glowTex); plane(s*2.1, s*0.42);
+  pop();
+
+  /* ---- side cards ---- */
+  const asp = ASPECT;
+  for (const dir of [-1, 1]){
+    const i2 = (index + dir + DECK.length) % DECK.length;
+    const tx2 = texFor(i2);
+    const hoverLift = (hoverSide === dir) ? s*0.03 : 0;
+    // floor shadow for the side card
+    push();
+    translate(dir*s*0.74, s*0.50, -300);
+    noStroke(); blendMode(BLEND); tint(0,0,0,110);
+    texture(glowTex); plane(s*1.1, s*0.30);
+    pop();
+
+    push();
+    translate(dir*s*0.66, s*0.035 - hoverLift, -212);
+    rotateY(dir * -0.30 + tilt.y*0.35);
+    rotateX(tilt.x*0.5 + 0.04);
+    noStroke(); blendMode(BLEND); fill(14,12,22);
+    plane(s*0.80*asp + 8, s*0.80 + 8);
+    pop();
+
+    push();
+    translate(dir*s*0.66, s*0.035 - hoverLift, -210);
+    rotateY(dir * -0.30 + tilt.y*0.35);
+    rotateX(tilt.x*0.5 + 0.04);
+    noStroke(); blendMode(BLEND);
+    tint(hoverSide===dir ? 200 : 176, hoverSide===dir ? 198 : 172, hoverSide===dir ? 214 : 196, 255);
+    texture(tx2); plane(s*0.80*asp, s*0.80);
+    pop();
+  }
+
+  /* ---- hero card ---- */
+  // card edge (thin dark backing gives physical thickness)
+  push();
+  rotateY(tilt.y + (flipRot < HALF_PI ? flipRot : flipRot - Math.PI));
+  rotateX(tilt.x);
+  translate(0, 0, -2.5);
+  noStroke(); blendMode(BLEND); fill(12, 10, 18);
+  plane(s*asp + 6, s + 6);
+  pop();
+
+  push();
+  rotateY(tilt.y + (flipRot < HALF_PI ? flipRot : flipRot - Math.PI));
+  rotateX(tilt.x);
+  noStroke(); blendMode(BLEND); tint(255,255,255,255);
+  texture(front ? currentTex() : getBack());
+  plane(s*asp, s);
+  pop();
+
+  /* ---- foil overlay (front only) ---- */
+  if (flipRot < HALF_PI - 0.15){
+    const sigil = smoothstep(0.20, 0.42, Math.abs(tilt.y)) * 0.85;
+    if (Math.abs(tilt.x-lastFoilState.tx) + Math.abs(tilt.y-lastFoilState.ty) > 0.006){
+      drawFoil(tilt.x, tilt.y, sigil);
+      lastFoilState.tx = tilt.x; lastFoilState.ty = tilt.y;
+    }
+    push();
+    translate(0,0,1.6);
+    rotateY(tilt.y + flipRot);
+    rotateX(tilt.x);
+    noStroke(); blendMode(ADD); tint(255, 235);
+    texture(foilGfx); plane(s*asp, s);
+    pop();
+  }
+  blendMode(BLEND);
+
+  /* ---- dust motes ---- */
+  drawDust(s, t);
+
+  // fps bookkeeping
+  fps = mixv(fps, frameRate(), 0.05);
+  window.__fps = fps;
+}
+
+function getBack(){
+  if (!backTex) backTex = buildBack(DECK[index]);
+  return backTex;
+}
+
+function drawDust(s, t){
+  push();
+  blendMode(ADD);
+  noStroke();
+  for (const d of dust){
+    const px = (d.x + Math.sin(t*0.12 + d.ph)*0.02) * width * 0.9;
+    let py = d.y * height;
+    py = ((py - t*d.sp*height*40) % (height*1.2) + height*1.2) % (height*1.2) - height*0.1;
+    const pz = d.z * s * 1.1;
+    push();
+    translate(px, py, pz);
+    const a = 18 + 40*Math.abs(Math.sin(t*0.6 + d.ph));
+    tint(255, 236, 210, a);
+    texture(glowTex);
+    const sz = d.s * (pz > 0 ? 15 : 9);
+    plane(sz, sz);
+    pop();
+  }
+  pop();
+  blendMode(BLEND);
+}
+
+function cardWorldHeight(){
+  return Math.min(height*0.80, (width*0.46)/ASPECT);
+}
+
+/* ---------- interaction ------------------------------------------------- */
+function navigate(dir){
+  index = (index + dir + DECK.length) % DECK.length;
+  flipTarget = 0; flipRot = 0;
+  lastFoilState.tx = 99;
+  updateHUD();
+}
+function updateHUD(){
+  const el = document.getElementById('idx');
+  const nm = document.getElementById('cname');
+  if (el) el.textContent = String(index+1).padStart(2,'0') + ' / ' + String(DECK.length).padStart(2,'0');
+  if (nm) nm.textContent = DECK[index].name;
+}
+function mousePressed(){
+  // side card hit test (screen space approximation)
+  const s = cardWorldHeight();
+  const dx = mouseX - width/2;
+  if (Math.abs(dx) > s*0.34 && Math.abs(mouseY - height/2) < s*0.46){
+    navigate(dx < 0 ? -1 : 1);
+    return;
+  }
+  flipTarget = flipTarget > 0 ? 0 : Math.PI;
+}
+function keyPressed(){
+  if (keyCode === LEFT_ARROW) navigate(-1);
+  if (keyCode === RIGHT_ARROW) navigate(1);
+  if (key === 'r' || key === 'R'){
+    CONFIG.seed = Math.floor(Math.random()*999999);
+    cardTexCache.clear(); backTex = null; foilRng = mulberry32(hashStr('foil'+CONFIG.seed));
+    lastFoilState.tx = 99;
+  }
+  if (key === 'f' || key === 'F') flipTarget = flipTarget > 0 ? 0 : Math.PI;
+  if (key === 's' || key === 'S') exportPNG();
+}
+function windowResized(){ resizeCanvas(windowWidth, windowHeight); lastFoilState.tx = 99; }
+
+/* ---------- export ------------------------------------------------------ */
+function composeExport(){
+  drawFoil(0.48, 0.34, 0.30);           // bake a representative sheen
+  lastFoilState.tx = 99;
+  const W = 1280, H = 1660, X = (W-CARD_W)/2, Y = (H-CARD_H)/2;
+  const g = createGraphics(W, H);
+  g.pixelDensity(1);
+  const ctx = g.drawingContext;
+  const bgGrad = ctx.createLinearGradient(0,0,0,H);
+  bgGrad.addColorStop(0,'#0d0a16'); bgGrad.addColorStop(0.5,'#08060e'); bgGrad.addColorStop(1,'#040308');
+  ctx.fillStyle = bgGrad; ctx.fillRect(0,0,W,H);
+  const rgl = ctx.createRadialGradient(W/2,H*0.40,0,W/2,H*0.40,H*0.62);
+  rgl.addColorStop(0, withA(DECK[index].pal.glow, 0.14)); rgl.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.fillStyle = rgl; ctx.fillRect(0,0,W,H);
+  ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 44; ctx.shadowOffsetY = 22;
+  ctx.drawImage(currentTex().canvas, X, Y, CARD_W, CARD_H);
+  ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.globalAlpha = 0.9;
+  ctx.drawImage(foilGfx.canvas, X, Y, CARD_W, CARD_H);
+  ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+  txt(g, DECK[index].id, X, Y - 24, 14, F_COND, withA(DECK[index].pal.accent, 0.7), 'left', 3);
+  txt(g, 'AETHER // REQUIEM · GENESIS', X + CARD_W, Y - 24, 14, F_COND, withA('#ffffff', 0.30), 'right', 3);
+  return g;
+}
+function exportPNG(){
+  const g = composeExport();
+  const name = 'aether-' + DECK[index].id.replace(/[^a-z0-9]+/gi,'-').toLowerCase();
+  g.canvas.toBlob(b => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(b);
+    a.download = name + '.png';
+    a.click();
+    window.__lastExport = name + '.png';
+  });
+}
+window.__exportDataURL = () => composeExport().canvas.toDataURL('image/png');
+window.__exportPNG = () => { exportPNG(); return true; };
+window.__cardPNG = (i) => { if (typeof i === 'number') index = i; return currentTex().canvas.toDataURL('image/png'); };
+window.__backPNG = () => getBack().canvas.toDataURL('image/png');
+window.__setIndex = (i) => { index = i; flipTarget = 0; flipRot = 0; lastFoilState.tx = 99; updateHUD(); };
+window.__setTilt = (x, y) => { tilt.x = x; tilt.y = y; };
+window.__setFlip = (v) => { flipTarget = v; flipRot = v; };
+
+</script>
+</body>
+</html>
