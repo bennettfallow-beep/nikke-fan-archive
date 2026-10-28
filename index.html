@@ -1551,6 +1551,8 @@ function drawDust(s, t){
 }
 
 function cardWorldHeight(){
+  // portrait phones: size to the width so the card fills the screen
+  if (width < height*0.95) return Math.min(height*0.62, (width*0.86)/ASPECT);
   return Math.min(height*0.80, (width*0.46)/ASPECT);
 }
 
